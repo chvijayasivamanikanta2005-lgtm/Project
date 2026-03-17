@@ -27,9 +27,9 @@ CYCLE_LIFE = 800
 MODEL_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models")
 
 ACTION_LABELS = {
-    0: "Increase Charging",
+    0: "Decrease Charging",
     1: "Maintain Charging",
-    2: "Decrease Charging",
+    2: "Increase Charging",
 }
 
 # -----------------------------------------------------------

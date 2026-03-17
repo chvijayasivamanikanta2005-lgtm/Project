@@ -328,8 +328,8 @@ with st.spinner("Processing AI Insights..."):
     rl_state = construct_rl_state(cal_soh, st.session_state.tavg, est_cycle, est_current)
     action, q_values = predict_rl_action(_dqn_model=dqn_model, state=rl_state)
 
-    action_text_map = {0: "Increase Charging", 1: "Maintain", 2: "Decrease Charging"}
-    action_text = action_text_map.get(action, "Maintain")
+    action_text_map = {0: "Decrease Charging", 1: "Maintain Charging", 2: "Increase Charging"}
+    action_text = action_text_map.get(action, "Analysis Complete")
 
     shap_values, chosen_action, _ = compute_shap_values(_dqn_model=dqn_model, state=rl_state)
     gru_raw_inputs = [st.session_state.ir, st.session_state.qc, st.session_state.qd, st.session_state.tavg, st.session_state.tmax, st.session_state.chargetime]
@@ -357,7 +357,7 @@ with main_dashboard_container:
             }
         ))
         fig_g.update_layout(height=180, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)")
-        st.plotly_chart(fig_g, use_container_width=True, key="battery_health_gauge")
+        st.plotly_chart(fig_g, width="stretch", key="battery_health_gauge")
 
     with p_col2:
         st.markdown('<div style="font-size: 1rem; font-weight: 700; color: #111827; margin-bottom: 15px;">⚡ AI Charging Decision</div>', unsafe_allow_html=True)
@@ -365,11 +365,11 @@ with main_dashboard_container:
         st.markdown(f'<div style="text-align:center; font-weight:800; color: #2563eb; font-size: 1.2rem; margin-bottom: 20px;">{action_text}</div>', unsafe_allow_html=True)
         
         fig_q = go.Figure(data=[go.Bar(
-            x=["Increase", "Maintain", "Decrease"], y=q_values.tolist(),
-            marker_color=["#10b981", "#f59e0b", "#ef4444"]
+            x=["Decrease", "Maintain", "Increase"], y=q_values.tolist(),
+            marker_color=["#ef4444", "#f59e0b", "#10b981"]
         )])
         fig_q.update_layout(height=220, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)")
-        st.plotly_chart(fig_q, use_container_width=True, key="ai_decision_bar_chart")
+        st.plotly_chart(fig_q, width="stretch", key="ai_decision_bar_chart")
 
     # ══════════════════════════════════════════════════════════════════════════════
     #  EXPLAINABILITY — 3×3 Grid
@@ -395,7 +395,7 @@ with main_dashboard_container:
             st.markdown(f'<p style="font-size: 0.8rem; font-weight: 600; color: #4b5563; margin-bottom: 5px;">{title}</p>', unsafe_allow_html=True)
             try:
                 fig = plot_func()
-                st.pyplot(fig, use_container_width=True)
+                st.pyplot(fig, width="stretch")
             except: st.warning("Graph unavailable")
 
     # ══════════════════════════════════════════════════════════════════════════════

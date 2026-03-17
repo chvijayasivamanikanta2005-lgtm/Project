@@ -37,8 +37,8 @@ GRID    = "#d1d5db"
 
 RL_FEATURES  = ["SoH", "Temp", "Cycle", "Current"]
 GRU_FEATURES = ["IR", "QC", "QD", "Tavg", "Tmax", "ChargeTime"]
-ACTIONS      = ["Increase", "Maintain", "Decrease"]
-ACT_COLORS   = [SUCCESS, WARNING, DANGER]
+ACTIONS      = ["Decrease", "Maintain", "Increase"]
+ACT_COLORS   = [DANGER, WARNING, SUCCESS]
 
 
 # ---------------------------------------------------------------------------
@@ -322,11 +322,11 @@ def generate_combined_xai_plot(shap_values, state, gru_inputs, chosen_action=0):
 # Textual Reasoning
 # ---------------------------------------------------------------------------
 def generate_reasoning_text(action, soh, temp, cycle, current):
-    action_map = {0: "Increase Charging", 1: "Maintain Charging", 2: "Decrease Charging"}
+    action_map = {0: "Decrease Charging", 1: "Maintain Charging", 2: "Increase Charging"}
     action_str = action_map.get(action, "Unknown")
     reasons = []
 
-    if action == 2:  # Decrease
+    if action == 0:  # Decrease
         if temp > 35:
             reasons.append(f"Battery temperature is elevated ({temp:.1f}°C), requiring "
                            "reduced current to prevent thermal runaway.")
@@ -352,7 +352,7 @@ def generate_reasoning_text(action, soh, temp, cycle, current):
         if not reasons:
             reasons.append("The current charging regime is optimal for minimising "
                            "degradation while maintaining performance.")
-    elif action == 0:  # Increase
+    elif action == 2:  # Increase
         if temp < 30:
             reasons.append(f"Battery temperature ({temp:.1f}°C) is cool enough to "
                            "safely accept a higher charge rate.")
