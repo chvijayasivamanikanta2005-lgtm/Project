@@ -115,23 +115,7 @@ def compute_shap_values(_dqn_model, state, feature_names=None):
     return shap_values, chosen_action, q_values
 
 
-# ---------------------------------------------------------------------------
-# 1. Global Feature Importance
-# ---------------------------------------------------------------------------
-def generate_feature_importance_plot(shap_values, feature_names=None, chosen_action=0):
-    if feature_names is None:
-        feature_names = RL_FEATURES
-    vals = np.abs(_safe_shap_for_action(shap_values, chosen_action))
-    order = np.argsort(vals)
-
-    fig, ax = _light_fig((7, 3.5))
-    colors = [PRIMARY, "#6366f1", "#8b5cf6", "#a78bfa"]
-    ax.barh(np.array(feature_names)[order], vals[order],
-            color=[colors[i % 4] for i in order], edgecolor="#c5cbd3", lw=0.5)
-    ax.set_xlabel("Mean |SHAP Value|", fontsize=10)
-    ax.set_title("SoH Prediction Feature Importance", fontsize=13, fontweight="bold")
-    ax.grid(axis="x", alpha=0.2, color=GRID)
-    return _fin(fig)
+# Note: Global Feature Importance moved to feature_importance.py
 
 
 # ---------------------------------------------------------------------------
@@ -245,31 +229,7 @@ def generate_action_influence_plot(shap_values, feature_names=None):
     return _fin(fig)
 
 
-# ---------------------------------------------------------------------------
-# 8. Feature Ranking Plot
-# ---------------------------------------------------------------------------
-def generate_feature_ranking_plot(shap_values, feature_names=None):
-    if feature_names is None:
-        feature_names = RL_FEATURES
-    matrix = np.abs(_all_actions_shap(shap_values))
-    agg = matrix.mean(axis=0)
-    order = np.argsort(agg)[::-1]
-
-    fig, ax = _light_fig((7, 3.5))
-    ranks = np.arange(len(feature_names))
-    colors = [PRIMARY, "#6366f1", "#8b5cf6", "#a78bfa"]
-    ax.barh(ranks, agg[order],
-            color=[colors[i % 4] for i in range(len(feature_names))],
-            edgecolor="#c5cbd3", lw=0.5)
-    ax.set_yticks(ranks)
-    ax.set_yticklabels(np.array(feature_names)[order], fontsize=10, color=TXT)
-    ax.invert_yaxis()
-    ax.set_xlabel("Aggregate |SHAP| (all actions)", fontsize=10)
-    ax.set_title("Feature Ranking", fontsize=13, fontweight="bold")
-    for i, v in enumerate(agg[order]):
-        ax.text(v + 0.001, i, f"{v:.4f}", va="center", fontsize=9, color=MUTED)
-    ax.grid(axis="x", alpha=0.15, color=GRID)
-    return _fin(fig)
+# Note: Feature Ranking Plot moved to feature_importance.py
 
 
 # ---------------------------------------------------------------------------

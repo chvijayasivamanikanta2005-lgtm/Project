@@ -1,5 +1,5 @@
 """
-inference.py — Model loading and prediction pipeline for EV-BMS Dashboard v4.
+inference.py — Model loading and prediction pipeline for EV-BMS Dashboard.
 """
 
 import os
@@ -14,16 +14,11 @@ os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 import numpy as np
 import joblib
 import streamlit as st
-import tensorflow as tf
 import keras
 
 # -----------------------------------------------------------
 # Constants
 # -----------------------------------------------------------
-GRU_SEQUENCE_LENGTH = 20
-GRU_NUM_FEATURES = 6
-CYCLE_LIFE = 800
-
 MODEL_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models")
 
 ACTION_LABELS = {
@@ -32,19 +27,17 @@ ACTION_LABELS = {
     2: "Increase Charging",
 }
 
+
 # -----------------------------------------------------------
 # Safe model loader
 # -----------------------------------------------------------
-def load_model_safe(path):
-    """
-    Load Keras models safely using standalone Keras 3.
-    """
+def _load_model_safe(path):
+    """Load Keras models safely using standalone Keras 3."""
     try:
         model = keras.models.load_model(path, compile=False)
     except Exception as e:
         st.error(f"Failed to load model at {path}: {e}")
         return None
-
     return model
 
 
@@ -53,41 +46,16 @@ def load_model_safe(path):
 # -----------------------------------------------------------
 @st.cache_resource
 def load_models():
-    # In Keras 3, backend is often automatically managed, but clear session is still good if using TF backend
-    if hasattr(keras, 'backend') and hasattr(keras.backend, 'clear_session'):
+    """Load all models and scalers (cached)."""
+    if hasattr(keras, "backend") and hasattr(keras.backend, "clear_session"):
         keras.backend.clear_session()
 
-    gru_model = load_model_safe(
-        os.path.join(MODEL_DIR, "gru_soh_model.keras")
-    )
-
-    dqn_model = load_model_safe(
-        os.path.join(MODEL_DIR, "double_dqn_calibrated.keras")
-    )
-
-    scaler_X = joblib.load(
-        os.path.join(MODEL_DIR, "gru_scaler_X.pkl")
-    )
-
-    scaler_y = joblib.load(
-        os.path.join(MODEL_DIR, "gru_scaler_y.pkl")
-    )
+    gru_model = _load_model_safe(os.path.join(MODEL_DIR, "gru_soh_model.keras"))
+    dqn_model = _load_model_safe(os.path.join(MODEL_DIR, "double_dqn_calibrated.keras"))
+    scaler_X = joblib.load(os.path.join(MODEL_DIR, "gru_scaler_X.pkl"))
+    scaler_y = joblib.load(os.path.join(MODEL_DIR, "gru_scaler_y.pkl"))
 
     return gru_model, dqn_model, scaler_X, scaler_y
-
-
-# -----------------------------------------------------------
-# GRU sequence preparation
-# -----------------------------------------------------------
-def prepare_gru_sequence(scaler_X, ir, qc, qd, tavg, tmax, chargetime):
-
-    raw = np.array([[ir, qc, qd, tavg, tmax, chargetime]])
-
-    scaled = scaler_X.transform(raw)
-
-    sequence = np.tile(scaled, (GRU_SEQUENCE_LENGTH, 1))
-
-    return np.expand_dims(sequence, axis=0)
 
 
 # -----------------------------------------------------------
@@ -95,81 +63,60 @@ def prepare_gru_sequence(scaler_X, ir, qc, qd, tavg, tmax, chargetime):
 # -----------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def predict_soh(_gru_model, _scaler_y, sequence):
-
+    """Predict SoH using the GRU model."""
     pred_scaled = _gru_model.predict(sequence, verbose=0)
-
     pred = _scaler_y.inverse_transform(pred_scaled)
-
     return float(pred[0][0])
 
 
 # -----------------------------------------------------------
-# Cycle estimation
-# -----------------------------------------------------------
-def estimate_cycle(qd, qc, cycle_life=CYCLE_LIFE):
-
-    if qc <= 0:
-        return 0
-
-    ratio = max(0.0, 1.0 - qd / qc)
-
-    return int(ratio * cycle_life)
-
-
-# -----------------------------------------------------------
-# Current estimation
-# -----------------------------------------------------------
-def estimate_current(qc, chargetime):
-
-    if chargetime <= 0:
-        return 0.0
-
-    return round(qc / (chargetime / 3600.0), 2)
-
-
-# -----------------------------------------------------------
-# SoH calibration
-# -----------------------------------------------------------
-def calibrate_soh(raw_soh, cycle, cycle_life=CYCLE_LIFE):
-
-    degradation = max(0.0, 1.0 - cycle / cycle_life)
-
-    soh_final = raw_soh * (0.7 + 0.3 * degradation)
-
-    return float(np.clip(soh_final, 0.5, 1.0))
-
-
-# -----------------------------------------------------------
-# Battery health classification
-# -----------------------------------------------------------
-def get_battery_health_label(soh):
-
-    if soh > 0.90:
-        return "Healthy"
-    elif soh > 0.80:
-        return "Moderate"
-    elif soh > 0.70:
-        return "Degrading"
-    else:
-        return "Severely Degraded"
-
-
-# -----------------------------------------------------------
-# RL state construction
-# -----------------------------------------------------------
-def construct_rl_state(soh, temperature, cycle, current):
-
-    return np.array([[soh, temperature, cycle, current]])
-
-
-# -----------------------------------------------------------
-# RL action prediction
+# RL action prediction — physics-corrected
 # -----------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def predict_rl_action(_dqn_model, state):
+    """
+    Predict RL charging action with physics-corrected Q-values.
 
-    q_values = _dqn_model.predict(state, verbose=0)
+    The trained DQN model's raw action indices are inverted relative to
+    battery physics:
+      - Raw index 2 gets highest Q for degraded/hot states (protective)
+      - Raw index 0 gets highest Q for healthy/cool states (aggressive)
 
-    action = int(np.argmax(q_values[0]))
+    Corrections applied:
+      1. Swap indices 0↔2 so our output maps correctly:
+         0 = Decrease, 1 = Maintain, 2 = Increase
+      2. Temperature correction: hot → boost Decrease, cold → boost Increase
+      3. SoH correction: low SoH → boost Decrease, high SoH → boost Increase
+    """
+    soh, temp, cycle, current = state[0]
 
-    return action, q_values[0].astype(float)
+    # Raw model Q-values
+    q_raw = _dqn_model.predict(state, verbose=0)[0]
+
+    # Step 1: Swap action indices 0↔2 to align with correct physics
+    # Model: [Q_aggressive, Q_maintain, Q_protective]
+    # Ours:  [Q_decrease,   Q_maintain, Q_increase  ]
+    q_corrected = np.array([q_raw[2], q_raw[1], q_raw[0]])
+
+    # Step 2: Temperature correction
+    # Normalized: -1.0 at 0°C, 0.0 at 25°C, +1.0 at 50°C
+    temp_factor = np.clip((temp - 25.0) / 25.0, -1.0, 1.0)
+    temp_correction = np.array([
+        temp_factor * 70.0,     # Decrease boosted when hot
+        0.0,                    # Maintain stays neutral
+        -temp_factor * 70.0,    # Increase boosted when cold
+    ])
+
+    # Step 3: SoH correction
+    # Normalized: -1.0 at SoH=0.60, 0.0 at SoH=0.80, +1.0 at SoH=1.00
+    soh_factor = np.clip((soh - 0.80) / 0.20, -1.0, 1.0)
+    soh_correction = np.array([
+        -soh_factor * 30.0,     # Decrease boosted for low SoH
+        0.0,                    # Maintain stays neutral
+        soh_factor * 30.0,      # Increase boosted for high SoH
+    ])
+
+    q_final = q_corrected + temp_correction + soh_correction
+    action = int(np.argmax(q_final))
+
+    return action, q_final.astype(float)
